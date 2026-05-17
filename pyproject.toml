@@ -1,0 +1,21 @@
+[project]
+name = "act-pick-place"
+version = "0.1.0"
+description = "ACT (Action Chunking with Transformers) for pick-and-place in MuJoCo simulation"
+requires-python = ">=3.11"
+dependencies = [
+    "torch",
+    "torchvision",
+    "mujoco",
+    "h5py",
+    "numpy",
+    "einops",
+    "matplotlib",
+    "opencv-python",
+    "tqdm",
+    "ipython",
+    "pyyaml",
+    "packaging",
+    "pyquaternion",
+    "mediapy",
+]

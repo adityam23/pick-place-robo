@@ -1,0 +1,30 @@
+{
+  "checkpoint": "policy_best.ckpt",
+  "config": {
+    "policy": "ACT",
+    "num_demos": 150,
+    "chunk_size": 50,
+    "temporal_agg": true,
+    "num_epochs": 2000,
+    "seed": 42,
+    "state_dim": 8,
+    "action_dim": 8,
+    "backbone": "resnet18",
+    "kl_weight": 10
+  },
+  "training": {
+    "best_val_loss": 0.03195,
+    "best_epoch": 1462
+  },
+  "eval": {
+    "num_episodes": 50,
+    "seed_range": [5000, 5049],
+    "successes": 39,
+    "failures": 11,
+    "success_rate": 0.78,
+    "success_threshold_m": 0.05,
+    "distance_all": {"mean_m": 0.0602, "std_m": 0.0902, "median_m": 0.0215, "min_m": 0.0020, "max_m": 0.3430},
+    "distance_successes": {"mean_m": 0.0190},
+    "distance_failures": {"mean_m": 0.2065}
+  }
+}
