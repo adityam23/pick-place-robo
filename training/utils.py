@@ -1,4 +1,6 @@
 import os
+import json
+import pickle
 import h5py
 import torch
 import numpy as np
@@ -6,15 +8,20 @@ from einops import rearrange
 from torch.utils.data import DataLoader
 
 from training.policy import ACTPolicy, CNNMLPPolicy
+from training.diffusion_policy import DiffusionPolicy
+from training.noise import perturb_observation
 
 
 class EpisodicDataset(torch.utils.data.Dataset):
-    def __init__(self, episode_ids, dataset_dir, camera_names, norm_stats):
+    def __init__(self, episode_ids, dataset_dir, camera_names, norm_stats,
+                 noise_config=None, noise_level=0.0):
         super(EpisodicDataset).__init__()
         self.episode_ids = episode_ids
         self.dataset_dir = dataset_dir
         self.camera_names = camera_names
         self.norm_stats = norm_stats
+        self.noise_config = noise_config
+        self.noise_level = noise_level
         self.is_sim = None
         #self.__getitem__(0) # initialize self.is_sim
 
@@ -71,6 +78,12 @@ class EpisodicDataset(torch.utils.data.Dataset):
 
         # normalize image and change dtype to float
         image_data = image_data / 255.0
+
+        # Observation noise augmentation (sim-to-real robustness)
+        if self.noise_level > 0:
+            image_data, qpos_data = perturb_observation(
+                image_data, qpos_data, self.noise_config, self.noise_level)
+
         action_data = ((action_data - self.norm_stats["action_mean"]) / self.norm_stats["action_std"]).float()
         qpos_data = ((qpos_data - self.norm_stats["qpos_mean"]) / self.norm_stats["qpos_std"]).float()
 
@@ -109,7 +122,9 @@ def get_norm_stats(dataset_dir, num_episodes):
     return stats
 
 
-def load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_size_val):
+def load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_size_val,
+              noise_config=None, noise_level=0.0):
+    """Build train/val dataloaders. Noise augmentation applies to the train split only."""
     print(f'\nData from: {dataset_dir}\n')
     # obtain train test split
     train_ratio = 0.8
@@ -121,7 +136,8 @@ def load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_s
     norm_stats = get_norm_stats(dataset_dir, num_episodes)
 
     # construct dataset and dataloader
-    train_dataset = EpisodicDataset(train_indices, dataset_dir, camera_names, norm_stats)
+    train_dataset = EpisodicDataset(train_indices, dataset_dir, camera_names, norm_stats,
+                                    noise_config, noise_level)
     val_dataset = EpisodicDataset(val_indices, dataset_dir, camera_names, norm_stats)
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size_train, shuffle=True, pin_memory=True, num_workers=1, prefetch_factor=1)
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size_val, shuffle=True, pin_memory=True, num_workers=1, prefetch_factor=1)
@@ -133,14 +149,58 @@ def make_policy(policy_class, policy_config):
         policy = ACTPolicy(policy_config)
     elif policy_class == "CNNMLP":
         policy = CNNMLPPolicy(policy_config)
+    elif policy_class == "Diffusion":
+        policy = DiffusionPolicy(policy_config)
     else:
         raise ValueError(f"Unknown policy class: {policy_class}")
     return policy
+
+def dataset_image_size(dataset_dir, camera_name):
+    """(width, height) of the images stored in a dataset."""
+    with h5py.File(os.path.join(dataset_dir, 'episode_0.hdf5'), 'r') as root:
+        height, width = root[f'/observations/images/{camera_name}'].shape[1:3]
+    return int(width), int(height)
+
+
+### run config: everything needed to rebuild and evaluate a trained policy
+
+RUN_CONFIG_NAME = 'run_config.json'
+
+
+def save_run_config(ckpt_dir, run_config):
+    """Write run_config.json: {'policy': ..., 'task': ..., 'noise_level': ..., 'training': ...}."""
+    policy = {k: v for k, v in run_config['policy'].items() if k != 'device'}
+    with open(os.path.join(ckpt_dir, RUN_CONFIG_NAME), 'w') as f:
+        json.dump({**run_config, 'policy': policy}, f, indent=2)
+
+
+def load_run(ckpt_path, device):
+    """Load a trained policy plus its normalization stats and run config.
+
+    Expects run_config.json and dataset_stats.pkl next to the checkpoint.
+    """
+    ckpt_dir = os.path.dirname(ckpt_path)
+    with open(os.path.join(ckpt_dir, RUN_CONFIG_NAME)) as f:
+        run_config = json.load(f)
+    policy_config = {**run_config['policy'], 'device': device}
+    run_config['policy'] = policy_config
+
+    policy = make_policy(policy_config['policy_class'], policy_config)
+    policy.load_state_dict(torch.load(ckpt_path, map_location=device, weights_only=True))
+    policy.to(device)
+    policy.eval()
+
+    with open(os.path.join(ckpt_dir, 'dataset_stats.pkl'), 'rb') as f:
+        stats = pickle.load(f)
+    return policy, stats, run_config
+
 
 def make_optimizer(policy_class, policy):
     if policy_class == 'ACT':
         optimizer = policy.configure_optimizers()
     elif policy_class == 'CNNMLP':
+        optimizer = policy.configure_optimizers()
+    elif policy_class == 'Diffusion':
         optimizer = policy.configure_optimizers()
     else:
         raise ValueError(f"Unknown policy class: {policy_class}")
