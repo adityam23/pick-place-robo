@@ -31,10 +31,7 @@ Most failures come from a dropped grasp or the cube getting knocked away in tran
 You need Python 3.11, [uv](https://docs.astral.sh/uv/), and a GPU for training.
 
 ```bash
-uv venv --python 3.11 && source .venv/bin/activate
-uv pip install -r pyproject.toml
-uv pip install git+https://github.com/Shaka-Labs/detr.git
-uv run python scripts/patch_detr.py   # adapts DETR to the Panda's 8-dim state
+uv sync
 ```
 
 Then collect the demonstrations, train, and evaluate:
