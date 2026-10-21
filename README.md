@@ -31,10 +31,7 @@ Most failures come from a dropped grasp or the cube getting knocked away in tran
 You need Python 3.11, [uv](https://docs.astral.sh/uv/), and a GPU for training.
 
 ```bash
-uv venv --python 3.11 && source .venv/bin/activate
-uv pip install -r pyproject.toml
-uv pip install git+https://github.com/Shaka-Labs/detr.git
-uv run python scripts/patch_detr.py   # adapts DETR to the Panda's 8-dim state
+uv sync
 ```
 
 Then collect the demonstrations, train, and evaluate:
@@ -43,16 +40,15 @@ Then collect the demonstrations, train, and evaluate:
 # 1. Collect 150 expert demonstrations into data/pick_place/
 uv run python sim/collect_data.py --task pick_place --num_episodes 150
 
-# 2. Train ACT
-uv run python train.py --task pick_place --chunk_size 50 --temporal_agg --suffix _chunk50_tagg
+# 2. Train ACT (saves checkpoints/pick_place_act/)
+uv run python train.py --task pick_place --suffix _act --chunk_size 50 --temporal_agg
 
-# 3. Evaluate over 50 episodes and save a video
-uv run python sim/evaluate_sim.py --task pick_place \
-    --ckpt checkpoints/pick_place_chunk50_tagg/policy_best.ckpt \
-    --chunk_size 50 --temporal_agg --num_episodes 50 --video
+# 3. Evaluate over 50 episodes, save a video and a results JSON
+uv run python sim/evaluate_sim.py --ckpt checkpoints/pick_place_act/policy_best.ckpt \
+    --num_episodes 50 --video --output results/pick_place_act.json
 ```
 
-Hyperparameters live in [`config/config.py`](config/config.py).
+Hyperparameters live in [`config/config.py`](config/config.py). To run every experiment (Diffusion, MobileNetV2, wrist camera, noise robustness) in one go, use `./run_experiments.sh`.
 
 ## In progress
 

@@ -90,6 +90,15 @@ def _build_scene_xml():
 """
 
 
+def _build_model():
+    """Compile the scene, mounting the wrist camera on the Panda hand body."""
+    spec = mujoco.MjSpec.from_string(_build_scene_xml())
+    # Offset 8 cm along the hand x-axis (clear of the fingers) and flipped
+    # about x so the camera's -z view axis points along the fingers.
+    spec.body('hand').add_camera(name='wrist', pos=[0.08, 0, 0], quat=[0, 1, 0, 0], fovy=75)
+    return spec.compile()
+
+
 class PandaPickPlaceEnv:
     """MuJoCo environment for Franka Panda pick-and-place."""
 
@@ -101,12 +110,13 @@ class PandaPickPlaceEnv:
     # Number of sub-steps per action step
     N_SUBSTEPS = 20
 
-    def __init__(self, cam_width=640, cam_height=480, render_gui=False):
+    def __init__(self, cam_width=640, cam_height=480, render_gui=False,
+                 camera_names=None):
         self.cam_width = cam_width
         self.cam_height = cam_height
+        self.camera_names = camera_names or ['front']
 
-        xml = _build_scene_xml()
-        self.model = mujoco.MjModel.from_xml_string(xml)
+        self.model = _build_model()
         self.data = mujoco.MjData(self.model)
 
         # Cache body/joint/actuator IDs
@@ -224,13 +234,15 @@ class PandaPickPlaceEnv:
             self.data.qvel[:self.ARM_JOINTS].copy(),
             [self.data.qvel[self.FINGER_JOINT1]]
         ])
-        # Camera image
-        image = self.render_camera()
+        # Camera images
+        images = {}
+        for cam_name in self.camera_names:
+            images[cam_name] = self.render_camera(cam_name)
 
         return {
             'qpos': qpos.astype(np.float64),
             'qvel': qvel.astype(np.float64),
-            'images': {'front': image},
+            'images': images,
         }
 
     def render_camera(self, camera_name='front'):

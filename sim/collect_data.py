@@ -16,7 +16,7 @@ from sim.scripted_expert import run_expert_episode
 
 
 def collect_episodes(num_episodes, task_name, max_steps=None, verbose=False,
-                     render=False):
+                     render=False, camera_names=None, cam_size=None):
     """Collect demonstration episodes and save to HDF5 files.
 
     Args:
@@ -25,8 +25,14 @@ def collect_episodes(num_episodes, task_name, max_steps=None, verbose=False,
         max_steps: max timesteps per episode (default from config)
         verbose: print per-episode info
         render: open MuJoCo GUI viewer to watch collection live
+        camera_names: list of camera names (default from TASK_CONFIG)
+        cam_size: (width, height) of recorded images (default from TASK_CONFIG)
     """
-    cfg = TASK_CONFIG
+    cfg = dict(TASK_CONFIG)
+    if camera_names is not None:
+        cfg['camera_names'] = list(camera_names)
+    if cam_size is not None:
+        cfg['cam_width'], cfg['cam_height'] = cam_size
     if max_steps is None:
         max_steps = cfg['episode_len']
 
@@ -43,6 +49,7 @@ def collect_episodes(num_episodes, task_name, max_steps=None, verbose=False,
         cam_width=cfg['cam_width'],
         cam_height=cfg['cam_height'],
         render_gui=render,
+        camera_names=cfg.get('camera_names', ['front']),
     )
 
     n_success = 0
@@ -124,11 +131,12 @@ def save_episode(data_dir, episode_idx, obs_list, action_list, cfg):
             'action', (T, action_dim), dtype='float64'
         )
 
-        # Image datasets with chunking for compression
-        for cam_name in cfg['camera_names']:
+        # Image datasets with chunking and gzip compression
+        for cam_name in cfg.get('camera_names', ['front']):
             img_grp.create_dataset(
                 cam_name, (T, cam_h, cam_w, 3), dtype='uint8',
                 chunks=(1, cam_h, cam_w, 3),
+                compression='gzip', compression_opts=4,
             )
 
         # Write data
@@ -150,11 +158,22 @@ if __name__ == '__main__':
                        help='Print per-episode info')
     parser.add_argument('--render', action='store_true',
                        help='Open MuJoCo GUI viewer to watch collection live')
+    parser.add_argument('--camera_names', type=str, default=None,
+                       help='Comma-separated camera names (e.g. front,wrist). '
+                            'Default uses TASK_CONFIG.')
+    parser.add_argument('--cam_size', type=str, default=None,
+                       help='Image size as WIDTHxHEIGHT (e.g. 320x240). Default uses TASK_CONFIG.')
     args = parser.parse_args()
+
+    cams = None
+    if args.camera_names is not None:
+        cams = [c.strip() for c in args.camera_names.split(',') if c.strip()]
 
     collect_episodes(
         num_episodes=args.num_episodes,
         task_name=args.task,
         verbose=args.verbose,
         render=args.render,
+        camera_names=cams,
+        cam_size=tuple(int(v) for v in args.cam_size.split('x')) if args.cam_size else None,
     )
